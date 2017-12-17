@@ -4,6 +4,8 @@ create user if not exists 'load_bot@localhost' identified by 'qwerty123';
 grant select, insert, update, execute, show view on api_data.* to 'load_bot@localhost';
 flush privileges;
 
+use api_data;
+
 create table if not exists api_data.fb (
 	id varchar(50) not null,
     created_time datetime not null,
