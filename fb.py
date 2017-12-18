@@ -119,43 +119,47 @@ def extract(config, id, url=None, retry_times=2, delay=5):
     while attempts <= 1:
         if url:
             logger.info('Getting api request, next page, id=%s' % id)
-            request = get_request(url,
+            r = get_request(url,
                                   retry_times=retry_times,
                                   delay=delay)
         else:
             logger.info('%s api request, start page, id=%s' % ('Getting' if attempts == 0 else 'Retrying to get', id))
-            request = get_request(config.get_request_url(id),
+            r = get_request(config.get_request_url(id),
                                   params=config.get_request_params(),
                                   retry_times=retry_times,
                                   delay=delay)
+        try:
+            request = r.json()
+        except ValueError:
+            request = None
+
         if request:
-            if 'error' in request.text:
-                info = request.json()
-                if info.get('error'):
-                    logger.error('API error: {message}\n{type} ({code})'.format(**info.get('error')))
-                    if info.get('code') in ('OAuthException', '102', '190'):
-                        logger.info('Getting authorization request')
-                        request = get_request(config.get_auth_url(), config.get_auth_params())
-                        if request:
-                            info = request.json()
-                            if info.get('error'):
-                                logger.error('API error: {message}\n{type} ({code})'.format(**info.get('error')))
-                                request = None
-                                break
-                            else:
-                                if info.get('access_token'):
-                                    attempts += 1
-                                    logger.info('Setting new auth token...')
-                                    config.set_token(info.get('access_token'))
-                                else:
-                                    request = None
-                                    break
-                        else:
+            if request.get('error'):
+                logger.error('API error: {message}\n{type} ({code})'.format(**request['error']))
+                if request.get('code') in ('OAuthException', '102', '190'):
+                    logger.info('Getting authorization request')
+                    r = get_request(config.get_auth_url(), config.get_auth_params())
+                    try:
+                        request = r.json()
+                    except ValueError:
+                        request = None
+
+                    if request:
+                        if request.get('error'):
+                            logger.error('API error: {message}\n{type} ({code})'.format(**request['error']))
                             request = None
                             break
+                        else:
+                            if request.get('access_token'):
+                                attempts += 1
+                                logger.info('Setting new auth token...')
+                                config.set_token(request['access_token'])
+                            else:
+                                request = None
+                                break
                     else:
-                        request = None
                         break
+
                 else:
                     request = None
                     break
@@ -180,10 +184,10 @@ def transform(request, source, upd_datetime, start_datetime):
     if not request:
         return data, next
 
-    objects = request.json()
-    posts = objects.get('data')
+    posts = request.get('data')
     try:
-        next = objects['paging']['next']
+        next = request['paging']['next']
+
     except KeyError:
         pass
 
@@ -192,6 +196,7 @@ def transform(request, source, upd_datetime, start_datetime):
         if post.get('created_time'):
             date_parts = post.get('created_time').replace('T', '+').split('+')
             post_date = datetime.datetime.strptime(' '.join(date_parts[:-1]), '%Y-%m-%d %H:%M:%S')
+
             if post_date < start_datetime:
                 stop_iter = True
                 continue
